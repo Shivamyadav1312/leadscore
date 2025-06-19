@@ -7,6 +7,16 @@ from datetime import datetime, timedelta
 import re
 from textblob import TextBlob
 import json
+from llm_service import LLMService
+from config import TOGETHER_API_KEY
+from demo_data import get_demo_conversation, get_all_demo_conversations, get_quick_test_conversation
+
+# Initialize LLM Service
+@st.cache_resource
+def get_llm_service():
+    if TOGETHER_API_KEY:
+        return LLMService()
+    return None
 
 # Configure page
 st.set_page_config(
@@ -27,29 +37,91 @@ st.markdown("""
         margin-bottom: 1rem;
     }
     .coaching-tip {
-        background: #f0f8ff;
-        border-left: 4px solid #4CAF50;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 5px;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 2px solid #007bff;
+        border-left: 6px solid #007bff;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        font-size: 14px;
+        line-height: 1.6;
+    }
+    .coaching-tip strong {
+        color: #007bff;
+        font-size: 16px;
+        display: block;
+        margin-bottom: 8px;
+    }
+    .coaching-tip em {
+        color: #6c757d;
+        font-style: italic;
     }
     .lead-score-high {
-        background: #d4edda;
-        color: #155724;
-        padding: 0.5rem;
-        border-radius: 5px;
+        background: linear-gradient(90deg, #d4edda, #c3e6cb);
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #28a745;
+        margin: 10px 0;
     }
     .lead-score-medium {
-        background: #fff3cd;
-        color: #856404;
-        padding: 0.5rem;
-        border-radius: 5px;
+        background: linear-gradient(90deg, #fff3cd, #ffeaa7);
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #ffc107;
+        margin: 10px 0;
     }
     .lead-score-low {
-        background: #f8d7da;
-        color: #721c24;
-        padding: 0.5rem;
-        border-radius: 5px;
+        background: linear-gradient(90deg, #f8d7da, #f5c6cb);
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #dc3545;
+        margin: 10px 0;
+    }
+    .coaching-section {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        border-radius: 15px;
+        margin: 20px 0;
+        color: white;
+    }
+    .coaching-header {
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 15px;
+        text-align: center;
+    }
+    .timing-context {
+        background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+        padding: 15px;
+        border-radius: 10px;
+        color: white;
+        margin: 10px 0;
+    }
+    .timing-metric {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 10px;
+        border-radius: 8px;
+        margin: 5px 0;
+        text-align: center;
+    }
+    .follow-up-optimal {
+        background: linear-gradient(90deg, #d4edda, #c3e6cb);
+        padding: 10px;
+        border-radius: 8px;
+        border-left: 4px solid #28a745;
+    }
+    .follow-up-good {
+        background: linear-gradient(90deg, #fff3cd, #ffeaa7);
+        padding: 10px;
+        border-radius: 8px;
+        border-left: 4px solid #ffc107;
+    }
+    .follow-up-delayed {
+        background: linear-gradient(90deg, #f8d7da, #f5c6cb);
+        padding: 10px;
+        border-radius: 8px;
+        border-left: 4px solid #dc3545;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -290,17 +362,387 @@ elif page == "Conversation Analysis":
     Paste your sales conversation below to get AI-powered insights and coaching recommendations.
     """)
     
+    # Check if LLM service is available
+    llm_service = get_llm_service()
+    if not llm_service:
+        st.warning("⚠️ Together AI API key not configured. Using basic analysis only.")
+    
+    # Time Interval Selection
+    st.subheader("📅 Conversation Timing")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        conversation_date = st.date_input(
+            "Conversation Date",
+            value=datetime.now().date(),
+            help="Select the date when this conversation took place"
+        )
+    
+    with col2:
+        conversation_time = st.time_input(
+            "Conversation Time",
+            value=datetime.now().time(),
+            help="Select the time when this conversation started"
+        )
+    
+    with col3:
+        conversation_duration = st.selectbox(
+            "Conversation Duration",
+            options=["15 minutes", "30 minutes", "45 minutes", "1 hour", "1.5 hours", "2 hours", "2+ hours"],
+            index=2,  # Default to 45 minutes
+            help="How long did the conversation last?"
+        )
+    
+    # Combine date and time
+    conversation_datetime = datetime.combine(conversation_date, conversation_time)
+    
+    # Display conversation timing info
+    st.info(f"""
+    📅 **Conversation Details:**
+    - **Date:** {conversation_date.strftime('%A, %B %d, %Y')}
+    - **Time:** {conversation_time.strftime('%I:%M %p')}
+    - **Duration:** {conversation_duration}
+    - **Day of Week:** {conversation_date.strftime('%A')}
+    """)
+    
+    # Demo data selection
+    st.subheader("🎯 Demo Conversations")
+    demo_option = st.selectbox(
+        "Choose a demo conversation to test:",
+        ["None - Enter my own", "Quick Test", "High-Intent Prospect", "Interested but Hesitant", 
+         "Price-Sensitive Lead", "Competitor Comparison", "Future Opportunity", "Objection-Heavy Lead"]
+    )
+    
+    # Load demo conversation if selected
+    conversation = ""
+    if demo_option == "Quick Test":
+        conversation = get_quick_test_conversation()
+    elif demo_option != "None - Enter my own":
+        demo_key = demo_option.lower().replace(" ", "_").replace("-", "_")
+        demo_data = get_demo_conversation(demo_key)
+        if demo_data:
+            conversation = demo_data["conversation"]
+            st.info(f"**Demo: {demo_data['title']}** - Expected Score: {demo_data['expected_score']}")
+            with st.expander("Key Insights to Look For"):
+                for insight in demo_data["key_insights"]:
+                    st.markdown(f"• {insight}")
+    
     # Input area
     conversation = st.text_area(
         "Enter Conversation Text:",
+        value=conversation,
         height=200,
         placeholder="Paste your sales conversation here..."
     )
     
     if st.button("🔍 Analyze Conversation", type="primary"):
         if conversation:
-            with st.spinner("Analyzing conversation..."):
-                analysis = analyzer.analyze_conversation(conversation)
+            with st.spinner("Analyzing conversation with AI..."):
+                if llm_service:
+                    # Calculate time since conversation
+                    time_since = datetime.now() - conversation_datetime
+                    hours_since = time_since.total_seconds() / 3600
+                    
+                    # Prepare timing context
+                    timing_context = {
+                        'date': conversation_date.strftime('%A, %B %d, %Y'),
+                        'time': conversation_time.strftime('%I:%M %p'),
+                        'duration': conversation_duration,
+                        'day_of_week': conversation_date.strftime('%A'),
+                        'time_since': f"{int(hours_since)} hours ago" if hours_since < 24 else f"{int(hours_since / 24)} days ago"
+                    }
+                    
+                    # Calculate follow-up status
+                    if hours_since < 24:
+                        follow_up_status = "🟢 Optimal"
+                    elif hours_since < 72:
+                        follow_up_status = "🟡 Good"
+                    else:
+                        follow_up_status = "🔴 Delayed"
+                    
+                    # Use LLM-powered analysis with timing context
+                    llm_analysis = llm_service.analyze_conversation_llm(conversation, timing_context)
+                    llm_score = llm_service.generate_lead_score_llm(llm_analysis)
+                    llm_insights = llm_service.generate_insights_llm(conversation, llm_analysis)
+                    llm_coaching = llm_service.generate_coaching_recommendations_llm(llm_analysis, llm_score)
+                    
+                    # Display conversation timing context
+                    st.subheader("⏰ Conversation Context")
+                    st.markdown("""
+                    <div class="timing-context">
+                        <div class="timing-metric">
+                            <strong>📅 Date:</strong> {date}<br>
+                            <strong>🕐 Time:</strong> {time}
+                        </div>
+                        <div class="timing-metric">
+                            <strong>📊 Duration:</strong> {duration}<br>
+                            <strong>📅 Day:</strong> {day}
+                        </div>
+                        <div class="timing-metric">
+                            <strong>⏱️ Time Since:</strong> {time_since}<br>
+                            <strong>📞 Follow-up:</strong> {follow_up_status}
+                        </div>
+                    </div>
+                    """.format(
+                        date=conversation_date.strftime('%m/%d/%Y'),
+                        time=conversation_time.strftime('%I:%M %p'),
+                        duration=conversation_duration,
+                        day=conversation_date.strftime('%A'),
+                        time_since=timing_context['time_since'],
+                        follow_up_status=follow_up_status
+                    ), unsafe_allow_html=True)
+                    
+                    # Display LLM results
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.subheader("🤖 AI Analysis Results")
+                        
+                        # Lead Score
+                        score = llm_score['overall_score']
+                        if score > 70:
+                            score_class = "lead-score-high"
+                            score_emoji = "🟢"
+                        elif score > 40:
+                            score_class = "lead-score-medium"
+                            score_emoji = "🟡"
+                        else:
+                            score_class = "lead-score-low"
+                            score_emoji = "🔴"
+                        
+                        st.markdown(f"""
+                        <div class="{score_class}">
+                            <h3>{score_emoji} Lead Score: {score}/100</h3>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Score breakdown
+                        st.subheader("📊 Score Breakdown")
+                        breakdown = llm_score['score_breakdown']
+                        for category, points in breakdown.items():
+                            st.metric(category.replace('_', ' ').title(), f"{points}/25")
+                        
+                        # Priority and timeline
+                        st.metric("🎯 Priority Level", llm_score['priority_level'])
+                        st.metric("⏰ Timeline", llm_score['timeline'])
+                        st.metric("🎯 Confidence", llm_score['confidence_level'])
+                    
+                    with col2:
+                        st.subheader("🔍 AI Analysis Details")
+                        
+                        # Sentiment and engagement
+                        st.metric("😊 Sentiment Score", f"{llm_analysis['sentiment_score']:.2f}")
+                        st.metric("🎯 Engagement Level", llm_analysis['engagement_level'])
+                        st.metric("💰 Buying Intent", llm_analysis['buying_intent'])
+                        st.metric("🚨 Urgency Level", llm_analysis['urgency_level'])
+                        
+                        # Key topics
+                        if llm_analysis['key_topics']:
+                            st.subheader("📝 Key Topics")
+                            for topic in llm_analysis['key_topics']:
+                                st.markdown(f"• {topic}")
+                    
+                    # Advanced insights
+                    st.subheader("💡 AI-Generated Insights")
+                    for insight in llm_insights:
+                        st.markdown(f"• {insight}")
+                    
+                    # Timing insights
+                    if llm_analysis.get('timing_insights'):
+                        st.subheader("⏰ Timing Insights")
+                        for timing_insight in llm_analysis['timing_insights']:
+                            st.markdown(f"• {timing_insight}")
+                    
+                    # Optimal follow-up time
+                    if llm_analysis.get('optimal_follow_up_time'):
+                        st.subheader("📞 Follow-up Recommendation")
+                        optimal_time = llm_analysis['optimal_follow_up_time']
+                        if optimal_time == "Immediate":
+                            st.success(f"🟢 **{optimal_time}** - Follow up right away while the conversation is fresh!")
+                        elif optimal_time in ["Within 24h", "Within 48h"]:
+                            st.warning(f"🟡 **{optimal_time}** - Good timing for follow-up")
+                        else:
+                            st.info(f"🔵 **{optimal_time}** - Plan your follow-up strategy")
+                    
+                    # Score explanation
+                    st.subheader("📋 Score Explanation")
+                    st.info(llm_score['score_explanation'])
+                    
+                    # Coaching Recommendations
+                    st.markdown("""
+                    <div class="coaching-section">
+                        <div class="coaching-header">🎯 AI Coaching Recommendations</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if llm_coaching and len(llm_coaching) > 0:
+                        # Check if coaching data is properly formatted
+                        if isinstance(llm_coaching, list) and all(isinstance(rec, dict) for rec in llm_coaching):
+                            for i, rec in enumerate(llm_coaching, 1):
+                                priority_color = {
+                                    'High': '🔴',
+                                    'Medium': '🟡',
+                                    'Low': '🟢',
+                                    'Critical': '🚨'
+                                }
+                                
+                                st.markdown(f"""
+                                <div class="coaching-tip">
+                                    <strong>{priority_color.get(rec.get('priority', 'Medium'), '⚪')} Recommendation #{i}: {rec.get('action', 'Follow up')}</strong>
+                                    <em>Category: {rec.get('category', 'General')}</em><br>
+                                    <em>Reason: {rec.get('reason', 'Based on conversation analysis')}</em><br>
+                                    <strong>Script:</strong> {rec.get('script', 'Schedule a follow-up call to discuss next steps.')}<br>
+                                    <em>Timeline: {rec.get('timeline', 'Within 48 hours')}</em><br>
+                                    <em>Expected Outcome: {rec.get('expected_outcome', 'Continued engagement')}</em>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        else:
+                            # Handle case where LLM returned a string or malformed data
+                            st.warning("⚠️ Coaching recommendations format issue. Using fallback recommendations.")
+                            st.info("LLM returned: " + str(type(llm_coaching)) + " - " + str(llm_coaching)[:200] + "...")
+                            
+                            # Provide fallback recommendations
+                            fallback_recommendations = [
+                                {
+                                    'priority': 'Medium',
+                                    'action': 'Schedule Follow-up Call',
+                                    'category': 'Follow-up',
+                                    'reason': 'Based on conversation analysis',
+                                    'script': 'Thank you for your time. Let\'s schedule a follow-up call to discuss your needs in detail.',
+                                    'timeline': 'Within 48 hours',
+                                    'expected_outcome': 'Continued engagement and deeper discussion'
+                                }
+                            ]
+                            
+                            for i, rec in enumerate(fallback_recommendations, 1):
+                                st.markdown(f"""
+                                <div class="coaching-tip">
+                                    <strong>🟡 Recommendation #{i}: {rec['action']}</strong>
+                                    <em>Category: {rec['category']}</em><br>
+                                    <em>Reason: {rec['reason']}</em><br>
+                                    <strong>Script:</strong> {rec['script']}<br>
+                                    <em>Timeline: {rec['timeline']}</em><br>
+                                    <em>Expected Outcome: {rec['expected_outcome']}</em>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    else:
+                        st.info("No specific coaching recommendations generated. This might indicate a straightforward conversation or limited data.")
+                    
+                    # Follow-up email generation
+                    if st.button("📧 Generate Follow-up Email"):
+                        with st.spinner("Generating personalized email..."):
+                            email = llm_service.generate_follow_up_email_llm(conversation, llm_analysis)
+                            st.subheader("📧 AI-Generated Follow-up Email")
+                            st.text_area("Email Content:", value=email, height=300)
+                    
+                    # Save analysis option
+                    if st.button("💾 Save Analysis"):
+                        # Create analysis record
+                        analysis_record = {
+                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'conversation_date': conversation_date.strftime('%Y-%m-%d'),
+                            'conversation_time': conversation_time.strftime('%H:%M'),
+                            'conversation_duration': conversation_duration,
+                            'day_of_week': conversation_date.strftime('%A'),
+                            'lead_score': llm_score['overall_score'],
+                            'priority_level': llm_score['priority_level'],
+                            'timeline': llm_score['timeline'],
+                            'confidence_level': llm_score['confidence_level'],
+                            'sentiment_score': llm_analysis['sentiment_score'],
+                            'engagement_level': llm_analysis['engagement_level'],
+                            'buying_intent': llm_analysis['buying_intent'],
+                            'urgency_level': llm_analysis['urgency_level'],
+                            'optimal_follow_up_time': llm_analysis.get('optimal_follow_up_time', 'Not specified'),
+                            'conversation_length': len(conversation),
+                            'key_topics': ', '.join(llm_analysis.get('key_topics', [])),
+                            'pain_points': ', '.join(llm_analysis.get('pain_points', [])),
+                            'objections': ', '.join(llm_analysis.get('objections', [])),
+                            'buying_signals': ', '.join(llm_analysis.get('buying_signals', [])),
+                            'next_steps': ', '.join(llm_analysis.get('next_steps_suggested', []))
+                        }
+                        
+                        # Save to CSV
+                        import os
+                        
+                        filename = 'conversation_analysis_history.csv'
+                        
+                        if os.path.exists(filename):
+                            # Append to existing file
+                            df = pd.read_csv(filename)
+                            df = pd.concat([df, pd.DataFrame([analysis_record])], ignore_index=True)
+                        else:
+                            # Create new file
+                            df = pd.DataFrame([analysis_record])
+                        
+                        df.to_csv(filename, index=False)
+                        st.success(f"✅ Analysis saved to {filename}")
+                        st.info(f"📊 Total analyses saved: {len(df)}")
+                    
+                    # View analysis history
+                    if st.button("📊 View Analysis History"):
+                        import os
+                        filename = 'conversation_analysis_history.csv'
+                        
+                        if os.path.exists(filename):
+                            df = pd.read_csv(filename)
+                            st.subheader("📊 Conversation Analysis History")
+                            
+                            # Display summary statistics
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Total Analyses", len(df))
+                            with col2:
+                                avg_score = df['lead_score'].mean()
+                                st.metric("Avg Lead Score", f"{avg_score:.1f}")
+                            with col3:
+                                recent_analyses = df[df['timestamp'] >= (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')]
+                                st.metric("This Week", len(recent_analyses))
+                            with col4:
+                                high_priority = len(df[df['priority_level'] == 'High'])
+                                st.metric("High Priority", high_priority)
+                            
+                            # Filter options
+                            st.subheader("🔍 Filter History")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                date_filter = st.date_input(
+                                    "Filter by Date",
+                                    value=datetime.now().date(),
+                                    help="Show analyses from this date"
+                                )
+                            with col2:
+                                priority_filter = st.selectbox(
+                                    "Filter by Priority",
+                                    ["All", "High", "Medium", "Low"]
+                                )
+                            
+                            # Apply filters
+                            filtered_df = df.copy()
+                            if date_filter:
+                                filtered_df = filtered_df[filtered_df['conversation_date'] == date_filter.strftime('%Y-%m-%d')]
+                            if priority_filter != "All":
+                                filtered_df = filtered_df[filtered_df['priority_level'] == priority_filter]
+                            
+                            # Display filtered results
+                            if len(filtered_df) > 0:
+                                st.dataframe(filtered_df[['conversation_date', 'conversation_time', 'conversation_duration', 
+                                                        'lead_score', 'priority_level', 'engagement_level', 'optimal_follow_up_time']])
+                                
+                                # Timing analysis chart
+                                st.subheader("⏰ Timing Analysis")
+                                fig = px.scatter(filtered_df, x='conversation_time', y='lead_score', 
+                                               color='priority_level', size='conversation_length',
+                                               title="Lead Score vs Conversation Time",
+                                               labels={'conversation_time': 'Time of Day', 'lead_score': 'Lead Score'})
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("No analyses found with the selected filters.")
+                        else:
+                            st.info("No analysis history found. Save your first analysis to see history here.")
+                
+                else:
+                    # Fallback to original analysis
+                    analysis = analyzer.analyze_conversation(conversation)
                 
                 # Display results
                 col1, col2 = st.columns(2)
@@ -349,22 +791,30 @@ elif page == "Conversation Analysis":
                     st.markdown(f"- {insight}")
                 
                 # Coaching Recommendations
-                st.subheader("🎯 Coaching Recommendations")
-                recommendations = generate_coaching_recommendations(analysis)
-                
-                for rec in recommendations:
-                    priority_color = {
-                        'High': '🔴',
-                        'Medium': '🟡',
-                        'Low': '🟢'
-                    }
-                    
-                    st.markdown(f"""
-                    <div class="coaching-tip">
-                        <strong>{priority_color[rec['priority']]} {rec['action']}</strong><br>
-                        <em>{rec['reason']}</em>
+                    st.markdown("""
+                    <div class="coaching-section">
+                        <div class="coaching-header">🎯 Coaching Recommendations</div>
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                recommendations = generate_coaching_recommendations(analysis)
+                    
+                if recommendations:
+                    for i, rec in enumerate(recommendations, 1):
+                        priority_color = {
+                            'High': '🔴',
+                            'Medium': '🟡',
+                            'Low': '🟢'
+                        }
+                        
+                        st.markdown(f"""
+                        <div class="coaching-tip">
+                            <strong>{priority_color[rec['priority']]} Recommendation #{i}: {rec['action']}</strong><br>
+                            <em>{rec['reason']}</em>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No specific coaching recommendations generated for this conversation.")
         else:
             st.warning("Please enter a conversation to analyze.")
 
@@ -375,8 +825,89 @@ elif page == "Lead Scoring":
     Configure and test the lead scoring algorithm based on various factors.
     """)
     
-    # Scoring Configuration
-    st.subheader("🔧 Scoring Configuration")
+    # Check if LLM service is available
+    llm_service = get_llm_service()
+    if not llm_service:
+        st.warning("⚠️ Together AI API key not configured. Using basic scoring only.")
+    
+    # AI-Powered Scoring Section
+    if llm_service:
+        st.subheader("🤖 AI-Powered Lead Scoring")
+        
+        # Demo conversation selection for AI scoring
+        ai_demo_option = st.selectbox(
+            "Choose a demo conversation for AI scoring:",
+            ["None - Enter my own", "Quick Test", "High-Intent Prospect", "Interested but Hesitant", 
+             "Price-Sensitive Lead", "Competitor Comparison", "Future Opportunity", "Objection-Heavy Lead"],
+            key="ai_demo"
+        )
+        
+        # Load demo conversation if selected
+        ai_conversation = ""
+        if ai_demo_option == "Quick Test":
+            ai_conversation = get_quick_test_conversation()
+        elif ai_demo_option != "None - Enter my own":
+            demo_key = ai_demo_option.lower().replace(" ", "_").replace("-", "_")
+            demo_data = get_demo_conversation(demo_key)
+            if demo_data:
+                ai_conversation = demo_data["conversation"]
+                st.info(f"**Demo: {demo_data['title']}** - Expected Score: {demo_data['expected_score']}")
+        
+        ai_conversation = st.text_area(
+            "Enter conversation for AI scoring:",
+            value=ai_conversation,
+            height=150,
+            placeholder="Paste conversation text for AI-powered scoring..."
+        )
+        
+        if st.button("🤖 Analyze with AI", type="primary"):
+            if ai_conversation:
+                with st.spinner("AI is analyzing and scoring..."):
+                    # Get AI analysis and scoring
+                    ai_analysis = llm_service.analyze_conversation_llm(ai_conversation)
+                    ai_score = llm_service.generate_lead_score_llm(ai_analysis)
+                    
+                    # Display AI results
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.subheader("🤖 AI Score Results")
+                        score = ai_score['overall_score']
+                        st.metric("AI Lead Score", f"{score}/100")
+                        st.metric("Priority Level", ai_score['priority_level'])
+                        st.metric("Timeline", ai_score['timeline'])
+                        st.metric("Confidence", ai_score['confidence_level'])
+                    
+                    with col2:
+                        st.subheader("📊 AI Score Breakdown")
+                        breakdown = ai_score['score_breakdown']
+                        for category, points in breakdown.items():
+                            st.metric(category.replace('_', ' ').title(), f"{points}/25")
+                    
+                    # Score explanation
+                    st.subheader("📋 AI Score Explanation")
+                    st.info(ai_score['score_explanation'])
+                    
+                    # Recommended action
+                    st.subheader("🎯 AI Recommended Action")
+                    st.success(ai_score['recommended_action'])
+                    
+                    # Score interpretation
+                    if score > 80:
+                        st.success("🔥 Hot Lead - Immediate follow-up required!")
+                    elif score > 60:
+                        st.warning("🌡️ Warm Lead - Schedule follow-up within 24 hours")
+                    elif score > 40:
+                        st.info("❄️ Cool Lead - Add to nurture campaign")
+                    else:
+                        st.error("🧊 Cold Lead - Long-term nurturing required")
+            else:
+                st.warning("Please enter conversation text for AI analysis.")
+        
+        st.markdown("---")
+    
+    # Manual Scoring Configuration
+    st.subheader("🔧 Manual Scoring Configuration")
     
     col1, col2 = st.columns(2)
     
@@ -476,6 +1007,85 @@ elif page == "Lead Scoring":
 
 elif page == "Coaching Hub":
     st.title("🎓 Coaching Hub")
+    
+    # Check if LLM service is available
+    llm_service = get_llm_service()
+    if not llm_service:
+        st.warning("⚠️ Together AI API key not configured. Using basic coaching only.")
+    
+    # AI-Powered Coaching Section
+    if llm_service:
+        st.subheader("🤖 AI-Powered Coaching")
+        
+        # Demo conversation selection for coaching
+        coaching_demo_option = st.selectbox(
+            "Choose a demo conversation for AI coaching:",
+            ["None - Enter my own", "Quick Test", "High-Intent Prospect", "Interested but Hesitant", 
+             "Price-Sensitive Lead", "Competitor Comparison", "Future Opportunity", "Objection-Heavy Lead"],
+            key="coaching_demo"
+        )
+        
+        # Load demo conversation if selected
+        coaching_conversation = ""
+        if coaching_demo_option == "Quick Test":
+            coaching_conversation = get_quick_test_conversation()
+        elif coaching_demo_option != "None - Enter my own":
+            demo_key = coaching_demo_option.lower().replace(" ", "_").replace("-", "_")
+            demo_data = get_demo_conversation(demo_key)
+            if demo_data:
+                coaching_conversation = demo_data["conversation"]
+                st.info(f"**Demo: {demo_data['title']}** - Expected Score: {demo_data['expected_score']}")
+        
+        coaching_conversation = st.text_area(
+            "Enter conversation for AI coaching:",
+            value=coaching_conversation,
+            height=150,
+            placeholder="Paste conversation text for personalized AI coaching..."
+        )
+        
+        if st.button("🤖 Get AI Coaching", type="primary"):
+            if coaching_conversation:
+                with st.spinner("AI is analyzing and generating coaching recommendations..."):
+                    # Get AI analysis and coaching
+                    ai_analysis = llm_service.analyze_conversation_llm(coaching_conversation)
+                    ai_score = llm_service.generate_lead_score_llm(ai_analysis)
+                    ai_coaching = llm_service.generate_coaching_recommendations_llm(ai_analysis, ai_score)
+                    
+                    # Display AI coaching results
+                    st.subheader("🎯 AI Coaching Recommendations")
+                    
+                    for rec in ai_coaching:
+                        priority_color = {
+                            'High': '🔴',
+                            'Medium': '🟡',
+                            'Low': '🟢',
+                            'Critical': '🚨'
+                        }
+                        
+                        st.markdown(f"""
+                        <div class="coaching-tip">
+                            <strong>{priority_color.get(rec['priority'], '⚪')} {rec['action']}</strong><br>
+                            <em>Category: {rec['category']}</em><br>
+                            <em>Reason: {rec['reason']}</em><br>
+                            <strong>Script:</strong> {rec['script']}<br>
+                            <em>Timeline: {rec['timeline']}</em><br>
+                            <em>Expected Outcome: {rec['expected_outcome']}</em>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Generate follow-up email
+                    if st.button("📧 Generate AI Follow-up Email"):
+                        with st.spinner("Generating personalized email..."):
+                            email = llm_service.generate_follow_up_email_llm(coaching_conversation, ai_analysis)
+                            st.subheader("📧 AI-Generated Follow-up Email")
+                            st.text_area("Email Content:", email, height=300)
+            else:
+                st.warning("Please enter conversation text for AI coaching.")
+        
+        st.markdown("---")
+    
+    # Traditional Coaching Categories
+    st.subheader("📚 Traditional Coaching Resources")
     
     # Coaching Categories
     coaching_categories = {
