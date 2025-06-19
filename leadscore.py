@@ -499,7 +499,7 @@ elif page == "Conversation Analysis":
                         st.subheader("🤖 AI Analysis Results")
                         
                         # Lead Score
-                        score = llm_score['overall_score']
+                        score = llm_score.get('overall_score', 50)
                         if score > 70:
                             score_class = "lead-score-high"
                             score_emoji = "🟢"
@@ -518,28 +518,29 @@ elif page == "Conversation Analysis":
                         
                         # Score breakdown
                         st.subheader("📊 Score Breakdown")
-                        breakdown = llm_score['score_breakdown']
+                        breakdown = llm_score.get('score_breakdown', {})
                         for category, points in breakdown.items():
                             st.metric(category.replace('_', ' ').title(), f"{points}/25")
                         
                         # Priority and timeline
-                        st.metric("🎯 Priority Level", llm_score['priority_level'])
-                        st.metric("⏰ Timeline", llm_score['timeline'])
-                        st.metric("🎯 Confidence", llm_score['confidence_level'])
+                        st.metric("🎯 Priority Level", llm_score.get('priority_level', 'Medium'))
+                        st.metric("⏰ Timeline", llm_score.get('timeline', 'This Week'))
+                        st.metric("🎯 Confidence", llm_score.get('confidence_level', 'Medium'))
                     
                     with col2:
                         st.subheader("🔍 AI Analysis Details")
                         
                         # Sentiment and engagement
-                        st.metric("😊 Sentiment Score", f"{llm_analysis['sentiment_score']:.2f}")
-                        st.metric("🎯 Engagement Level", llm_analysis['engagement_level'])
-                        st.metric("💰 Buying Intent", llm_analysis['buying_intent'])
-                        st.metric("🚨 Urgency Level", llm_analysis['urgency_level'])
+                        st.metric("😊 Sentiment Score", f"{llm_analysis.get('sentiment_score', 0.0):.2f}")
+                        st.metric("🎯 Engagement Level", llm_analysis.get('engagement_level', 'Medium'))
+                        st.metric("💰 Buying Intent", llm_analysis.get('buying_intent', 'Medium'))
+                        st.metric("🚨 Urgency Level", llm_analysis.get('urgency_level', 'Low'))
                         
                         # Key topics
-                        if llm_analysis['key_topics']:
+                        key_topics = llm_analysis.get('key_topics', [])
+                        if key_topics:
                             st.subheader("📝 Key Topics")
-                            for topic in llm_analysis['key_topics']:
+                            for topic in key_topics:
                                 st.markdown(f"• {topic}")
                     
                     # Advanced insights
@@ -548,15 +549,16 @@ elif page == "Conversation Analysis":
                         st.markdown(f"• {insight}")
                     
                     # Timing insights
-                    if llm_analysis.get('timing_insights'):
+                    timing_insights = llm_analysis.get('timing_insights', [])
+                    if timing_insights:
                         st.subheader("⏰ Timing Insights")
-                        for timing_insight in llm_analysis['timing_insights']:
+                        for timing_insight in timing_insights:
                             st.markdown(f"• {timing_insight}")
                     
                     # Optimal follow-up time
-                    if llm_analysis.get('optimal_follow_up_time'):
+                    optimal_time = llm_analysis.get('optimal_follow_up_time')
+                    if optimal_time:
                         st.subheader("📞 Follow-up Recommendation")
-                        optimal_time = llm_analysis['optimal_follow_up_time']
                         if optimal_time == "Immediate":
                             st.success(f"🟢 **{optimal_time}** - Follow up right away while the conversation is fresh!")
                         elif optimal_time in ["Within 24h", "Within 48h"]:
@@ -566,7 +568,7 @@ elif page == "Conversation Analysis":
                     
                     # Score explanation
                     st.subheader("📋 Score Explanation")
-                    st.info(llm_score['score_explanation'])
+                    st.info(llm_score.get('score_explanation', 'Standard scoring applied'))
                     
                     # Coaching Recommendations
                     st.markdown("""
@@ -644,14 +646,14 @@ elif page == "Conversation Analysis":
                             'conversation_time': conversation_time.strftime('%H:%M'),
                             'conversation_duration': conversation_duration,
                             'day_of_week': conversation_date.strftime('%A'),
-                            'lead_score': llm_score['overall_score'],
-                            'priority_level': llm_score['priority_level'],
-                            'timeline': llm_score['timeline'],
-                            'confidence_level': llm_score['confidence_level'],
-                            'sentiment_score': llm_analysis['sentiment_score'],
-                            'engagement_level': llm_analysis['engagement_level'],
-                            'buying_intent': llm_analysis['buying_intent'],
-                            'urgency_level': llm_analysis['urgency_level'],
+                            'lead_score': llm_score.get('overall_score', 50),
+                            'priority_level': llm_score.get('priority_level', 'Medium'),
+                            'timeline': llm_score.get('timeline', 'This Week'),
+                            'confidence_level': llm_score.get('confidence_level', 'Medium'),
+                            'sentiment_score': llm_analysis.get('sentiment_score', 0.0),
+                            'engagement_level': llm_analysis.get('engagement_level', 'Medium'),
+                            'buying_intent': llm_analysis.get('buying_intent', 'Medium'),
+                            'urgency_level': llm_analysis.get('urgency_level', 'Low'),
                             'optimal_follow_up_time': llm_analysis.get('optimal_follow_up_time', 'Not specified'),
                             'conversation_length': len(conversation),
                             'key_topics': ', '.join(llm_analysis.get('key_topics', [])),
@@ -739,82 +741,81 @@ elif page == "Conversation Analysis":
                                 st.info("No analyses found with the selected filters.")
                         else:
                             st.info("No analysis history found. Save your first analysis to see history here.")
-                
                 else:
                     # Fallback to original analysis
                     analysis = analyzer.analyze_conversation(conversation)
-                
-                # Display results
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader("📊 Analysis Results")
                     
-                    # Lead Score
-                    score = analysis['lead_score']
-                    if score > 70:
-                        score_class = "lead-score-high"
-                        score_emoji = "🟢"
-                    elif score > 40:
-                        score_class = "lead-score-medium"
-                        score_emoji = "🟡"
-                    else:
-                        score_class = "lead-score-low"
-                        score_emoji = "🔴"
+                    # Display fallback results
+                    col1, col2 = st.columns(2)
                     
-                    st.markdown(f"""
-                    <div class="{score_class}">
-                        <h3>{score_emoji} Lead Score: {score:.1f}/100</h3>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    with col1:
+                        st.subheader("📊 Analysis Results")
+                        
+                        # Lead Score
+                        score = analysis['lead_score']
+                        if score > 70:
+                            score_class = "lead-score-high"
+                            score_emoji = "🟢"
+                        elif score > 40:
+                            score_class = "lead-score-medium"
+                            score_emoji = "🟡"
+                        else:
+                            score_class = "lead-score-low"
+                            score_emoji = "🔴"
+                        
+                        st.markdown(f"""
+                        <div class="{score_class}">
+                            <h3>{score_emoji} Lead Score: {score:.1f}/100</h3>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Sentiment
+                        sentiment = analysis['sentiment']
+                        st.metric("😊 Sentiment Score", f"{sentiment.polarity:.2f}")
+                        st.metric("🎯 Engagement Level", analysis['engagement_level'])
+                        st.metric("📝 Word Count", analysis['word_count'])
                     
-                    # Sentiment
-                    sentiment = analysis['sentiment']
-                    st.metric("😊 Sentiment Score", f"{sentiment.polarity:.2f}")
-                    st.metric("🎯 Engagement Level", analysis['engagement_level'])
-                    st.metric("📝 Word Count", analysis['word_count'])
-                
-                with col2:
-                    st.subheader("🔍 Keyword Analysis")
+                    with col2:
+                        st.subheader("🔍 Keyword Analysis")
+                        
+                        keywords_df = pd.DataFrame(
+                            list(analysis['keyword_counts'].items()),
+                            columns=['Category', 'Count']
+                        )
+                        
+                        fig = px.bar(keywords_df, x='Category', y='Count', title="Keyword Categories")
+                        st.plotly_chart(fig, use_container_width=True)
                     
-                    keywords_df = pd.DataFrame(
-                        list(analysis['keyword_counts'].items()),
-                        columns=['Category', 'Count']
-                    )
+                    # Insights
+                    st.subheader("💡 Key Insights")
+                    for insight in analysis['insights']:
+                        st.markdown(f"- {insight}")
                     
-                    fig = px.bar(keywords_df, x='Category', y='Count', title="Keyword Categories")
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # Insights
-                st.subheader("💡 Key Insights")
-                for insight in analysis['insights']:
-                    st.markdown(f"- {insight}")
-                
-                # Coaching Recommendations
+                    # Coaching Recommendations
                     st.markdown("""
                     <div class="coaching-section">
                         <div class="coaching-header">🎯 Coaching Recommendations</div>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                recommendations = generate_coaching_recommendations(analysis)
+                    recommendations = generate_coaching_recommendations(analysis)
                     
-                if recommendations:
-                    for i, rec in enumerate(recommendations, 1):
-                        priority_color = {
-                            'High': '🔴',
-                            'Medium': '🟡',
-                            'Low': '🟢'
-                        }
-                        
-                        st.markdown(f"""
-                        <div class="coaching-tip">
-                            <strong>{priority_color[rec['priority']]} Recommendation #{i}: {rec['action']}</strong><br>
-                            <em>{rec['reason']}</em>
-                        </div>
-                        """, unsafe_allow_html=True)
-                else:
-                    st.info("No specific coaching recommendations generated for this conversation.")
+                    if recommendations:
+                        for i, rec in enumerate(recommendations, 1):
+                            priority_color = {
+                                'High': '🔴',
+                                'Medium': '🟡',
+                                'Low': '🟢'
+                            }
+                            
+                            st.markdown(f"""
+                            <div class="coaching-tip">
+                                <strong>{priority_color[rec['priority']]} Recommendation #{i}: {rec['action']}</strong><br>
+                                <em>{rec['reason']}</em>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.info("No specific coaching recommendations generated for this conversation.")
         else:
             st.warning("Please enter a conversation to analyze.")
 
@@ -872,25 +873,25 @@ elif page == "Lead Scoring":
                     
                     with col1:
                         st.subheader("🤖 AI Score Results")
-                        score = ai_score['overall_score']
+                        score = ai_score.get('overall_score', 50)
                         st.metric("AI Lead Score", f"{score}/100")
-                        st.metric("Priority Level", ai_score['priority_level'])
-                        st.metric("Timeline", ai_score['timeline'])
-                        st.metric("Confidence", ai_score['confidence_level'])
+                        st.metric("Priority Level", ai_score.get('priority_level', 'Medium'))
+                        st.metric("Timeline", ai_score.get('timeline', 'This Week'))
+                        st.metric("Confidence", ai_score.get('confidence_level', 'Medium'))
                     
                     with col2:
                         st.subheader("📊 AI Score Breakdown")
-                        breakdown = ai_score['score_breakdown']
+                        breakdown = ai_score.get('score_breakdown', {})
                         for category, points in breakdown.items():
                             st.metric(category.replace('_', ' ').title(), f"{points}/25")
                     
                     # Score explanation
                     st.subheader("📋 AI Score Explanation")
-                    st.info(ai_score['score_explanation'])
+                    st.info(ai_score.get('score_explanation', 'Standard scoring applied'))
                     
                     # Recommended action
                     st.subheader("🎯 AI Recommended Action")
-                    st.success(ai_score['recommended_action'])
+                    st.success(ai_score.get('recommended_action', 'Follow up within 48 hours'))
                     
                     # Score interpretation
                     if score > 80:
